@@ -1,47 +1,47 @@
 // btc-race entry: a displacement bot for cbBTC/USDC on the bars-replay rule set.
 //
-// The strategy in one line: most of the time the window is noise and the right trade is no
-// trade; when price is far enough below its own recent level that the expected snap back
-// covers the round trip, take one full-size position once, and leave it alone until the exit
-// condition or the hold limit closes it.
+// The whole strategy: the window is mostly noise, and on noise the correct position is flat;
+// when price is stretched far enough below its own recent level that the snap back pays for
+// the round trip, the bot takes one full-size position, once, and then does nothing until an
+// exit condition or the hold limit takes it out.
 //
-// Why "few trades" and not "scalp every move". The replay charges 4 bps fee on every fill,
-// 2 bps of modelled slippage, and constant-product price impact against the pool's own depth
-// (about 7 bps for a full-size buy at the depth this universe froze). A full-size round trip
-// therefore costs roughly 26 bps. A trade has to catch a move larger than that just to break
-// even, so a strategy that fires on every wiggle is paying 26 bps to chase moves whose median
-// is well under it. Measured on the dev window's 1,440 one-minute bars, the median absolute
-// one-minute move is a small fraction of the round-trip cost, and the field's distribution
-// shows it: of 2,828 graded entries on a recent race window, 52% traded nothing, 35% lost
-// money, and the loss deepened monotonically with trade count (bots with 10+ trades averaged
-// about -$28 on a $1,000 stake). Meanwhile exactly equal net PnL is broken by the entry with
-// fewer trades, so churn is penalised twice: once by the fees and once by the tie break.
+// Why it trades so rarely. The replay bills 4 bps of fee on every fill, adds 2 bps of modelled
+// slippage, and charges constant-product price impact against the pool's own depth (about 7 bps
+// for a full-size buy at the depth this universe froze). A full-size round trip therefore lands
+// near 26 bps. Any trade has to beat that number before it earns a cent, and the median absolute
+// one-minute move is far below it — so a bot that fires on every wiggle is paying 26 bps to chase
+// moves that mostly cannot cover the bill. The field shows the same thing: of 2,828 graded entries
+// on a recent race window, 52% traded nothing at all, 35% lost money, and losses grew monotonically
+// with trade count (bots at 10+ trades averaged roughly -$28 on a $1,000 stake). Churn is punished
+// twice, because exactly equal net PnL is broken in favour of the entry with fewer trades.
 //
-// Why displacement from a rolling median. The price series is a mean-reverting walk around a
-// slowly moving level on the minutes-to-hours scale, so the reference level is a rolling
-// median rather than a long average: a median ignores the single outlier prints that the pool
-// occasionally takes, while a mean would be dragged by them and would call a spike a dip. The
-// entry triggers only when the close sits DIP below that median, which is far enough that a
-// snap back to the level pays several times the round-trip cost.
+// Why displacement, and why from a median. The series is a mean-reverting walk around a level that
+// itself drifts on the minutes-to-hours scale, so the level is a rolling median and not a long
+// mean: a median shrugs off the single outlier prints the pool occasionally takes, while a mean
+// gets dragged by them and mistakes a spike for a dip. The entry fires only when the close sits
+// DIP below that median — a gap wide enough that a return to the level covers the round trip
+// several times over.
 //
-// Why a hold limit and a stop. The dev gate asks for a net PnL above zero on a frozen window
-// nobody can see in advance, and the race ranks only the ten best net PnLs, so the bot has to
-// be right on an unknown window rather than on a fitted one. The hold limit bounds how long
-// capital can sit in a position that is not working, and the stop bounds the drawdown, which
-// the guardrails cap at 25% of equity. Both exits were chosen so the same parameters clear the
-// gate on the dev window and on independent 24-hour bitcoin windows, and the parameters were
-// kept at the centre of the surviving region rather than at its best cell, because a single
-// profitable point is noise while a profitable neighbourhood is a signal.
+// Why a hold limit and a stop. Grading wants a net PnL above zero on a frozen window nobody can
+// preview, and only the ten best net PnLs rank, so the bot must be right on an unseen window
+// rather than on a fitted one. The hold limit bounds how long capital can sit in a position that
+// is not working; the stop bounds drawdown, which the guardrails cap at 25% of equity. Both exits
+// were picked so the same parameters clear the dev gate and independent 24-hour bitcoin windows,
+// and the values sit at the centre of the surviving region instead of at its best cell — a single
+// profitable point is noise, a profitable neighbourhood is signal.
 //
-// Determinism: no clock, no network, no Math.random. Two runs on the same bars produce the
-// same orders byte for byte, which the grader checks.
+// Determinism: no clock, no network, no Math.random. Two runs over the same bars emit the same
+// orders byte for byte, which is what the grader checks.
 
 import { runBars } from './vendor/makefun-bars.ts';
 
 /** Symbol we trade: the universe holds exactly one at this competition. */
 const SYMBOL = 'CBBTC';
 
-/** Bars of history the reference level is taken over (two hours of one-minute bars). */
+/**
+ * Bars of history the reference level is taken over: two hours of one-minute bars, long enough
+ * that the median describes the level price is trading around rather than the last wiggle.
+ */
 const LOOKBACK = 120;
 /** Close this far below the rolling median is a displacement worth a full-size entry. */
 const DIP = 0.02;
